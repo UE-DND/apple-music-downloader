@@ -407,7 +407,7 @@ function Start-Services {
     $credentialPath = "wrapper\rootfs\data\data\com.apple.android.music"
     $hasCredentials = $false
     try {
-        $files = Get-ChildItem -Path $credentialPath -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne '.gitkeep' }
+        $files = Get-ChildItem -Path $credentialPath -File -Recurse -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne '.gitkeep' }
         if ($files -and ($files | Measure-Object).Count -gt 0) {
             $hasCredentials = $true
         }

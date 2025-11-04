@@ -299,14 +299,14 @@ function Write-Title($text) {
 
 function Write-Success($text) {
     Write-Host "[" -NoNewline -ForegroundColor DarkGray
-    Write-Host "✓" -NoNewline -ForegroundColor Green
+    Write-Host "√" -NoNewline -ForegroundColor Green
     Write-Host "] " -NoNewline -ForegroundColor DarkGray
     Write-Host "$text" -ForegroundColor Green
 }
 
 function Write-Error($text) {
     Write-Host "[" -NoNewline -ForegroundColor DarkGray
-    Write-Host "✗" -NoNewline -ForegroundColor Red
+    Write-Host "×" -NoNewline -ForegroundColor Red
     Write-Host "] " -NoNewline -ForegroundColor DarkGray
     Write-Host "$text" -ForegroundColor Red
 }
@@ -351,20 +351,22 @@ function Test-Docker {
 
 # 启动服务
 function Start-Services {
+    param([switch]$Interactive)
+    
     Write-Title "启动 Wrapper 服务"
     
     # 检查目录
     if (-not (Test-Path "wrapper\wrapper")) {
         Write-Error "请在项目根目录运行此脚本！"
         Write-Host "当前目录: $(Get-Location)" -ForegroundColor Yellow
-        pause
+        if (-not $Interactive) { pause }
         return
     }
     
     # 检查 Docker
     Draw-Step -StepNum "1/5" -Text "检查 Docker 状态..."
     if (-not (Test-Docker)) {
-        pause
+        if (-not $Interactive) { pause }
         return
     }
     Write-Host ""
@@ -380,7 +382,7 @@ function Start-Services {
         Pop-Location
         if ($LASTEXITCODE -ne 0) {
             Write-Error "镜像构建失败"
-            pause
+            if (-not $Interactive) { pause }
             return
         }
         Write-Success "镜像构建成功"
@@ -403,7 +405,15 @@ function Start-Services {
     # 配置凭证
     Draw-Step -StepNum "4/5" -Text "配置登录凭证..."
     $credentialPath = "wrapper\rootfs\data\data\com.apple.android.music"
-    $hasCredentials = Test-Path "$credentialPath\*"
+    $hasCredentials = $false
+    try {
+        $files = Get-ChildItem -Path $credentialPath -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne '.gitkeep' }
+        if ($files -and ($files | Measure-Object).Count -gt 0) {
+            $hasCredentials = $true
+        }
+    } catch {
+        $hasCredentials = $false
+    }
     $needInteractiveLogin = $false
     
     if ($hasCredentials) {
@@ -426,7 +436,7 @@ function Start-Services {
             Remove-Item -Path "$credentialPath\*" -Recurse -Force -ErrorAction SilentlyContinue
             
         Write-Host ""
-        Draw-Box -Title "🔐 登录 Apple ID" -Content @("注意：Apple ID 需要拥有 Apple Music 订阅") -TitleColor Cyan -ContentColor Yellow
+        Draw-Box -Title "登录 Apple ID" -Content @("注意：Apple ID 需要拥有 Apple Music 订阅") -TitleColor Cyan -ContentColor Yellow
         Write-Host ""
             Write-Host "► " -NoNewline -ForegroundColor Green
             $email = Read-Host "Apple ID"
@@ -440,7 +450,7 @@ function Start-Services {
         }
     } else {
         Write-Host ""
-        Draw-Box -Title "🔐 首次使用须登录 Apple ID" -Content @("注意：Apple ID 需要拥有 Apple Music 订阅") -TitleColor Cyan -ContentColor Yellow
+        Draw-Box -Title "登录 Apple ID" -Content @("注意：Apple ID 需要拥有 Apple Music 订阅") -TitleColor Cyan -ContentColor Yellow
         Write-Host ""
         Write-Host "► " -NoNewline -ForegroundColor Green
         $email = Read-Host "Apple ID"
@@ -462,29 +472,28 @@ function Start-Services {
         Write-Host ""
         Write-Title "使用交互模式登录"
         $notes = @(
-            "1️⃣  如果账号开启了双因素认证（2FA），验证码会发送",
+            "1.  如果账号开启了双因素认证（2FA），验证码会发送",
             "    到你的 Apple 设备",
             "",
-            "2️⃣  请在下方提示时输入收到的验证码",
+            "2.  请在下方提示时输入收到的验证码",
             "",
-            "3️⃣  若长时间未收到验证码，尝试输入最后一次收到的",
+            "3.  若长时间未收到验证码，尝试输入最后一次收到的",
             "    验证码",
-            "",
-            "4️⃣  登录成功后容器会自动切换到后台运行"
+            ""
         )
-        Draw-Box -Title "⚠ 注意事项" -Content $notes -TitleColor Yellow -ContentColor Yellow -BorderColor Yellow -Width $script:UI_BOX_WIDTH
+        Draw-Box -Title "注意事项" -Content $notes -TitleColor Yellow -ContentColor Yellow -BorderColor Yellow -Width $script:UI_BOX_WIDTH
         Write-Host ""
         $tips = @(
             "Apple 验证码通常在几秒内送达，如超过1分钟未收到，",
             "可能是短时间内请求过多，建议等待15-30分钟后重试"
         )
-        Draw-Box -Title "💡 提示" -Content $tips -TitleColor Cyan -ContentColor Cyan -BorderColor Cyan -Width $script:UI_BOX_WIDTH
+        Draw-Box -Title "提示" -Content $tips -TitleColor Cyan -ContentColor Cyan -BorderColor Cyan -Width $script:UI_BOX_WIDTH
         Write-Host ""
         Draw-InfoBox -Text "按任意键继续..." -Color Gray
         $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         Write-Host ""
         
-        Draw-InfoBox -Text "🚀 正在启动交互式登录..." -Color Green
+        Draw-InfoBox -Text "启动交互式登录..." -Color Green
         Write-Host ""
         
         # 启动监控脚本
@@ -554,7 +563,7 @@ function Start-Services {
 
         if ($LASTEXITCODE -ne 0) {
             Write-Error "容器启动失败"
-            pause
+            if (-not $Interactive) { pause }
             return
         }
         
@@ -566,7 +575,7 @@ function Start-Services {
     if (-not $containerStatus) {
         Write-Error "容器未运行，查看日志："
         docker logs apple-music-wrapper 2>&1
-        pause
+        if (-not $Interactive) { pause }
         return
     }
     
@@ -576,8 +585,8 @@ function Start-Services {
         Write-Host ""
         Write-Title "Wrapper 启动成功！"
         Draw-Box -Title "" -Content @(
-            "🔓 解密端口: 127.0.0.1:10020",
-            "📺 M3U8端口: 127.0.0.1:20020"
+            "解密端口: 127.0.0.1:10020",
+            "M3U8端口: 127.0.0.1:20020"
         ) -ContentColor Green
         Write-Host ""
     } else {
@@ -635,7 +644,7 @@ function Stop-Services {
 
 # 下载音乐
 function Start-Download {
-    param($Url, $Song, $Atmos, $Aac, $Select, $ShowDebug, $AllAlbum)
+    param($Url, $Song, $Atmos, $Aac, $Select, $ShowDebug, $AllAlbum, [switch]$Interactive)
     
     Write-Title "Apple Music Downloader"
     
@@ -644,36 +653,34 @@ function Start-Download {
     if (-not $wrapperStatus) {
         Write-Warning "Wrapper 服务未运行，正在自动启动..."
         Write-Host ""
-        Start-Services
-        Write-Host ""
-        Write-Host "Wrapper 已启动，继续下载..." -ForegroundColor Green
+        Start-Services -Interactive:$Interactive
         Write-Host ""
     }
     
     # 如果没有提供 URL，提示用户输入
     if (-not $Url) {
-        Draw-InfoBox -Text "🔗 请输入要下载的链接" -Color Yellow
+        Draw-InfoBox -Text "粘贴下载链接 (Ctrl+Shift+V)" -Color Yellow
         Write-Host ""
         Write-Host "► " -NoNewline -ForegroundColor Green
         $Url = Read-Host "链接"
         
         if (-not $Url) {
             Write-Error "未提供链接"
-            pause
+            if (-not $Interactive) { pause }
             return
         }
         
         Write-Host ""
         $downloadOptions = @(
-            @{num="1"; text="🎵 单曲"; color="Cyan"; bg="DarkCyan"},
-            @{num="2"; text="💿 完整专辑/播放列表"; color="Cyan"; bg="DarkCyan"},
-            @{num="3"; text="✅选择性下载"; color="Cyan"; bg="DarkCyan"},
-            @{num="4"; text="🎧 杜比全景声"; color="Magenta"; bg="DarkMagenta"},
-            @{num="5"; text="🎼 AAC 格式"; color="Cyan"; bg="DarkCyan"},
-            @{num="6"; text="ℹ️  查看音质信息"; color="Blue"; bg="DarkBlue"}
+            @{num="1"; text="单曲"; color="Cyan"; bg="DarkCyan"},
+            @{num="2"; text="完整专辑/播放列表"; color="Cyan"; bg="DarkCyan"},
+            @{num="3"; text="选择性下载"; color="Cyan"; bg="DarkCyan"},
+            @{num="4"; text="杜比全景声"; color="Magenta"; bg="DarkMagenta"},
+            @{num="5"; text="AAC 格式"; color="Cyan"; bg="DarkCyan"},
+            @{num="6"; text="查看音质信息"; color="Blue"; bg="DarkBlue"}
         )
         
-        Draw-Menu -Title "📝 选择下载类型：" -Items $downloadOptions
+        Draw-Menu -Title "选择下载类型：" -Items $downloadOptions
         Write-Host ""
         Write-Host "► " -NoNewline -ForegroundColor Green
         $choice = Read-Host "请选择 [1-6]"
@@ -714,7 +721,7 @@ function Start-Download {
         docker build -f Dockerfile.downloader -t apple-music-downloader .
         if ($LASTEXITCODE -ne 0) {
             Write-Error "下载器镜像构建失败"
-            pause
+            if (-not $Interactive) { pause }
             return
         }
         Write-Success "下载器镜像构建成功"
@@ -750,10 +757,10 @@ function Start-Download {
     
     Write-Host ""
     if ($LASTEXITCODE -eq 0) {
-        Draw-SuccessBox -Title "✅ 下载完成！" -Lines @("📁 文件保存在: AM-DL downloads\")
+        Draw-SuccessBox -Title "下载完成！" -Lines @("文件保存在: AM-DL downloads\")
         Write-Host ""
     } else {
-        Draw-ErrorBox -Text "❌ 下载过程中出现错误"
+        Draw-ErrorBox -Text "下载过程中出现错误"
         Write-Host ""
     }
     Write-Host ""
@@ -767,7 +774,7 @@ function Show-Status {
     $containerStatus = docker ps --filter "name=apple-music-wrapper" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
     
     if ($containerStatus -match "apple-music-wrapper") {
-        Draw-InfoBox -Text "✅ Wrapper 服务运行中" -Color Green
+        Draw-InfoBox -Text "Wrapper 服务运行中" -Color Green
         Write-Host ""
         docker ps --filter "name=apple-music-wrapper" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
         Write-Host ""
@@ -775,15 +782,15 @@ function Show-Status {
         # 检查端口监听
         $logs = docker logs apple-music-wrapper 2>&1 | Out-String
         if ($logs -match "listening.*10020" -and $logs -match "listening.*20020") {
-            Draw-Box -Title "✅ 端口监听正常" -Content @(
-                "🔓 解密端口: 127.0.0.1:10020",
-                "📺 M3U8端口: 127.0.0.1:20020"
+            Draw-Box -Title "端口监听正常" -Content @(
+                "解密端口: 127.0.0.1:10020",
+                "M3U8端口: 127.0.0.1:20020"
             ) -TitleColor Green -ContentColor Cyan
         } else {
             Write-Warning "端口监听状态未知，请查看日志"
         }
     } else {
-        Draw-Box -Title "⚠ Wrapper 服务未运行" -Content @(
+        Draw-Box -Title "Wrapper 服务未运行" -Content @(
             "使用以下命令启动：",
             ".\start.ps1 download [链接]"
         ) -TitleColor Yellow -ContentColor White -BorderColor Yellow
@@ -794,21 +801,23 @@ function Show-Status {
 
 # 查看日志
 function Show-Logs {
+    param([switch]$Interactive)
+    
     Write-Title "服务日志"
     
     $containerExists = docker ps -a -q --filter "name=apple-music-wrapper" 2>$null
     if (-not $containerExists) {
         Write-Warning "未找到 apple-music-wrapper 容器"
-        pause
+        if (-not $Interactive) { pause }
         return
     }
     
-    Draw-InfoBox -Text "📋 显示最近 50 行日志" -Color Cyan
+    Draw-InfoBox -Text "显示最近 50 行日志" -Color Cyan
     Write-Host ""
     docker logs --tail 50 apple-music-wrapper 2>&1
     Write-Host ""
     
-    Draw-Box -Title "💡 提示" -Content @(
+    Draw-Box -Title "提示" -Content @(
         "使用以下命令查看实时日志：",
         "docker logs -f apple-music-wrapper"
     ) -TitleColor Cyan -ContentColor White
@@ -902,7 +911,7 @@ function Show-Help {
     Write-Host "  clean              清理 Docker 资源" -ForegroundColor Cyan
     Write-Host "  help               显示此帮助信息" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "💡 提示：" -ForegroundColor Yellow
+    Write-Host "提示：" -ForegroundColor Yellow
     Write-Host "  • 无参数运行进入交互菜单" -ForegroundColor White
     Write-Host "  • 下载时会自动启动服务" -ForegroundColor White
     Write-Host "  • 退出时可选择清理方式" -ForegroundColor White
@@ -989,27 +998,35 @@ function Show-Menu {
             switch ($action) {
                 "download" {
                     Clear-Host
-                    Start-Download -Url $null
-                    pause
+                    Start-Download -Url $null -Interactive
+                    Write-Host ""
+                    Write-Host "按任意键返回菜单..." -ForegroundColor DarkGray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
                 }
                 "status" {
                     Clear-Host
                     Show-Status
-                    pause
+                    Write-Host ""
+                    Write-Host "按任意键返回菜单..." -ForegroundColor DarkGray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
                 }
                 "logs" {
                     Clear-Host
-                    Show-Logs
-                    pause
+                    Show-Logs -Interactive
+                    Write-Host ""
+                    Write-Host "按任意键返回菜单..." -ForegroundColor DarkGray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
                 }
                 "help" {
                     Clear-Host
                     Show-Help
-                    pause
+                    Write-Host ""
+                    Write-Host "按任意键返回菜单..." -ForegroundColor DarkGray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
                 }
                 "exit" {
                     $cleanOptions = @(
-                        @{num="1"; text="停止容器但保留镜像（推荐，默认）"; color="Cyan"; bg="DarkGreen"; action="stop"},
+                        @{num="1"; text="停止容器但保留镜像（推荐）"; color="Cyan"; bg="DarkGreen"; action="stop"},
                         @{num="2"; text="停止容器并删除所有镜像（完全清理）"; color="Cyan"; bg="DarkYellow"; action="clean"},
                         @{num="3"; text="仅退出，保持容器运行"; color="Cyan"; bg="DarkCyan"; action="keep"}
                     )

@@ -51,11 +51,11 @@ RUN BENTO4_VERSION="1-6-0-641" && \
     rm -rf /tmp/bento4.zip /tmp/Bento4-SDK-*
 
 # 验证安装
-RUN echo "=== 验证工具安装 ===" && \
+RUN echo "* * *验证工具安装* * *" && \
     MP4Box -version && \
     mp4decrypt 2>&1 | head -n 1 && \
     ffmpeg -version | head -n 1 && \
-    echo "=== 所有工具已安装 ==="
+    echo "* * *所有工具已安装* * *"
 
 WORKDIR /app
 

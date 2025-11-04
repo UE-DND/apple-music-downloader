@@ -3,7 +3,7 @@ FROM ubuntu:latest
 WORKDIR /app
 #COPY --from=builder /app /app
 COPY . /app
-ENV args ""
+ENV args=""
 
 CMD ["bash", "-c", "./wrapper ${args}"]
 

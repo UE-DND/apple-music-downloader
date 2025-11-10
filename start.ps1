@@ -1,39 +1,26 @@
 # Downloader Start Script
 
+param(
+    [Parameter(Position=0, Mandatory=$false)]
+    [ValidateSet("start", "stop", "download", "status", "logs", "clean", "help")]
+    [string]$Action,
+    
+    [Parameter(Position=1, Mandatory=$false)]
+    [string]$Url,
+    
+    [switch]$Song,
+    [switch]$Atmos,
+    [switch]$Aac,
+    [switch]$Select,
+    [switch]$ShowDebug,
+    [switch]$AllAlbum
+)
+
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
-# 
-# 全局UI配置
-$script:UI_BOX_WIDTH = 58  # 统一的边框宽度
-#
-# 使用示例：
-#
-# 1. 绘制标准框：
-#    Draw-Box -Title "标题" -Content @("行1", "行2") -TitleColor Cyan -ContentColor White
-#
-# 2. 绘制双线框（用于重要提示）：
-#    Draw-DoubleBox -Text "成功消息" -Color Green
-#
-# 3. 绘制菜单：
-#    $items = @(
-#        @{num="1"; text="选项1"; color="Cyan"; bg="DarkCyan"},
-#        @{num="2"; text="选项2"; color="Red"; bg="DarkRed"}
-#    )
-#    Draw-Menu -Title "请选择：" -Items $items
-#
-# 4. 绘制步骤进度：
-#    Draw-Step -StepNum "1/5" -Text "步骤描述"
-#
-# 5. 绘制信息框（单行）：
-#    Draw-InfoBox -Text "提示信息" -Color Yellow
-#
-# 6. 绘制成功框：
-#    Draw-SuccessBox -Title "操作成功" -Lines @("详情1", "详情2")
-#
-# 7. 绘制错误框：
-#    Draw-ErrorBox -Text "错误信息"
-#
+# 全局 UI 配置
+$script:UI_BOX_WIDTH = 58
 # ============================================================================
 
 # 计算字符串实际显示宽度（中文字符算2，ASCII算1）
@@ -190,15 +177,24 @@ function Draw-Step {
         [int]$Width = $script:UI_BOX_WIDTH
     )
     
-    $textWidth = $Width - 4
-    $lineWidth = $Width - 10
+    $textWidth = $Width - 2
     
-    Write-Host "┌─ " -NoNewline -ForegroundColor DarkGray
-    Write-Host "步骤 $StepNum" -NoNewline -ForegroundColor White -BackgroundColor DarkBlue
-    Write-Host (" " + ("─" * $lineWidth) + "┐") -ForegroundColor DarkGray
+    $label = "步骤 $StepNum"
+    $leftInside = "─ "
+    $usedWidth = (Get-DisplayWidth $leftInside) + (Get-DisplayWidth $label) + 1
+    $remain = $Width - $usedWidth
+    if ($remain -lt 0) { $remain = 0 }
+    
+    Write-Host "┌" -NoNewline -ForegroundColor DarkGray
+    Write-Host $leftInside -NoNewline -ForegroundColor DarkGray
+    Write-Host $label -NoNewline -ForegroundColor White -BackgroundColor DarkBlue
+    Write-Host (" " + ("─" * $remain)) -NoNewline -ForegroundColor DarkGray
+    Write-Host "┐" -ForegroundColor DarkGray
     
     $paddedText = Format-FixedWidth $Text $textWidth
-    Write-Host ("│ " + $paddedText + " │") -ForegroundColor Green
+    Write-Host "│ " -NoNewline -ForegroundColor DarkGray
+    Write-Host $paddedText -NoNewline -ForegroundColor Green
+    Write-Host " │" -ForegroundColor DarkGray
     
     Write-Host ("└" + ("─" * $Width) + "┘") -ForegroundColor DarkGray
 }
@@ -266,22 +262,6 @@ function Draw-ErrorBox {
     
     Write-Host ("╚" + ("═" * $Width) + "╝") -ForegroundColor Red
 }
-
-param(
-    [Parameter(Position=0, Mandatory=$false)]
-    [ValidateSet("start", "stop", "download", "status", "logs", "clean", "help")]
-    [string]$Action,
-    
-    [Parameter(Position=1, Mandatory=$false)]
-    [string]$Url,
-    
-    [switch]$Song,
-    [switch]$Atmos,
-    [switch]$Aac,
-    [switch]$Select,
-    [switch]$ShowDebug,
-    [switch]$AllAlbum
-)
 
 function Write-Title($text) {
     $boxWidth = $script:UI_BOX_WIDTH
@@ -415,8 +395,26 @@ function Start-Services {
         $hasCredentials = $false
     }
     $needInteractiveLogin = $false
-    
-    if ($hasCredentials) {
+    $usingSavedCredentials = $false
+
+    # 询问是否需要登录（仅下载歌词需要登录）
+    Write-Host ""
+    Draw-Box -Title "登录选项" -Content @(
+        "仅下载歌词时需要登录；下载音乐无需登录。",
+        "是否现在登录以启用歌词下载？"
+    ) -TitleColor Cyan -ContentColor Yellow
+    Write-Host ""
+    Write-Host "► " -NoNewline -ForegroundColor Green
+    $loginChoice = Read-Host "是否需要登录? (y/N)"
+    $wantLogin = ($loginChoice -eq "y" -or $loginChoice -eq "Y")
+
+    if (-not $wantLogin) {
+        $loginArgs = "-H 0.0.0.0"
+        $needInteractiveLogin = $false
+        $usingSavedCredentials = $false
+        Write-Info "跳过登录：可直接下载音乐（不包含歌词）"
+    }
+    elseif ($hasCredentials) {
         Write-Host "[" -NoNewline -ForegroundColor DarkGray
         Write-Host "!" -NoNewline -ForegroundColor Yellow
         Write-Host "] " -NoNewline -ForegroundColor DarkGray
@@ -427,6 +425,7 @@ function Start-Services {
         
         if ($useExisting -eq "" -or $useExisting -eq "Y" -or $useExisting -eq "y") {
             $loginArgs = "-H 0.0.0.0"
+            $usingSavedCredentials = $true
             Write-Success "使用本地凭证登录"
         } else {
             Write-Host "[" -NoNewline -ForegroundColor DarkGray
@@ -436,7 +435,7 @@ function Start-Services {
             Remove-Item -Path "$credentialPath\*" -Recurse -Force -ErrorAction SilentlyContinue
             
         Write-Host ""
-        Draw-Box -Title "登录 Apple ID" -Content @("注意：Apple ID 需要拥有 Apple Music 订阅") -TitleColor Cyan -ContentColor Yellow
+        Draw-Box -Title "登录 Apple ID" -Content @("仅下载歌词时需登录；下载音乐无需登录。","若选择登录，请确保 Apple ID 拥有 Apple Music 订阅") -TitleColor Cyan -ContentColor Yellow
         Write-Host ""
             Write-Host "► " -NoNewline -ForegroundColor Green
             $email = Read-Host "Apple ID"
@@ -448,9 +447,9 @@ function Start-Services {
             $needInteractiveLogin = $true
             Write-Success "凭证配置完成（将使用交互模式登录）"
         }
-    } else {
+    } elseif ($wantLogin) {
         Write-Host ""
-        Draw-Box -Title "登录 Apple ID" -Content @("注意：Apple ID 需要拥有 Apple Music 订阅") -TitleColor Cyan -ContentColor Yellow
+        Draw-Box -Title "登录 Apple ID" -Content @("仅下载歌词时需登录；下载音乐无需登录。","若选择登录，请确保 Apple ID 拥有 Apple Music 订阅") -TitleColor Cyan -ContentColor Yellow
         Write-Host ""
         Write-Host "► " -NoNewline -ForegroundColor Green
         $email = Read-Host "Apple ID"
@@ -552,8 +551,12 @@ function Start-Services {
         
         Start-Sleep -Seconds 3
     } else {
-        # 使用已保存的凭证，后台启动
-        Write-Host "使用已保存的凭证启动..." -ForegroundColor Yellow
+        # 后台启动（使用已保存凭证或跳过登录）
+        if ($usingSavedCredentials) {
+            Write-Host "使用已保存的凭证启动..." -ForegroundColor Yellow
+        } else {
+            Write-Host "跳过登录启动..." -ForegroundColor Yellow
+        }
         docker run -d --name apple-music-wrapper `
             -v "${wrapperPath}\rootfs\data:/app/rootfs/data" `
             -p 10020:10020 `
@@ -693,6 +696,9 @@ function Start-Download {
             "6" { $ShowDebug = $true }
         }
     }
+    
+    # 预先准备下载器镜像与下载目录
+    Prepare-DownloaderImage -Interactive:$Interactive
     
     # 构建命令参数
     $cmdArgs = @()
@@ -895,6 +901,33 @@ function Clear-DockerResources {
     Write-Host ""
 }
 
+# 准备下载器镜像与下载目录
+function Prepare-DownloaderImage {
+    param([switch]$Interactive)
+    
+    # 创建下载目录（如果不存在）
+    $downloadsPath = Join-Path (Get-Location) "AM-DL downloads"
+    if (-not (Test-Path $downloadsPath)) {
+        New-Item -ItemType Directory -Path $downloadsPath | Out-Null
+    }
+    
+    # 检查下载器镜像是否存在
+    $downloaderImageExists = docker images -q apple-music-downloader 2>$null
+    if (-not $downloaderImageExists) {
+        Write-Warning "首次使用需要构建下载器镜像..."
+        Write-Host "这可能需要几分钟时间（仅首次）..." -ForegroundColor Yellow
+        Write-Host "正在编译程序并安装依赖: Go + MP4Box + FFmpeg + mp4decrypt..." -ForegroundColor Cyan
+        docker build -f Dockerfile.downloader -t apple-music-downloader .
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "下载器镜像构建失败"
+            if (-not $Interactive) { pause }
+            throw "downloader_image_build_failed"
+        }
+        Write-Success "下载器镜像构建成功"
+        Write-Host ""
+    }
+}
+
 # 显示帮助
 function Show-Help {
     Write-Title "Apple Music Downloader 使用帮助"
@@ -910,11 +943,6 @@ function Show-Help {
     Write-Host "  logs               查看服务日志" -ForegroundColor Cyan
     Write-Host "  clean              清理 Docker 资源" -ForegroundColor Cyan
     Write-Host "  help               显示此帮助信息" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "提示：" -ForegroundColor Yellow
-    Write-Host "  • 无参数运行进入交互菜单" -ForegroundColor White
-    Write-Host "  • 下载时会自动启动服务" -ForegroundColor White
-    Write-Host "  • 退出时可选择清理方式" -ForegroundColor White
     Write-Host ""
     
     Write-Host "下载选项：" -ForegroundColor Yellow
@@ -966,11 +994,10 @@ function Show-Menu {
 
         Draw-Menu -Title "请选择操作：" -Items $menuItems -SelectedIndex $selected
         Write-Host ""
-        Write-Host "↑↓ 选择，Enter 确认，Esc 退出" -ForegroundColor DarkGray
+        Write-Host "↑↓ 选择，Enter 确认" -ForegroundColor DarkGray
 
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         
-        # 使用 VirtualKeyCode 进行更可靠的按键检测
         $keyCode = $key.VirtualKeyCode
         
         # 上箭头: 38, 下箭头: 40, Enter: 13, Esc: 27
@@ -986,10 +1013,6 @@ function Show-Menu {
             $selected = if ($selected -ge $menuItems.Count - 1) { 0 } else { $selected + 1 }
             continue
         }
-        elseif ($keyCode -eq 27) {
-            # Esc
-            return
-        }
         elseif ($keyCode -eq 13) {
             # Enter
             if ($menuItems.Count -eq 0) { continue }
@@ -1000,29 +1023,41 @@ function Show-Menu {
                     Clear-Host
                     Start-Download -Url $null -Interactive
                     Write-Host ""
-                    Write-Host "按任意键返回菜单..." -ForegroundColor DarkGray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    Write-Host "按 Esc 返回菜单..." -ForegroundColor DarkGray
+                    while ($true) {
+                        $backKey = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                        if ($backKey.VirtualKeyCode -eq 27) { break }
+                    }
                 }
                 "status" {
                     Clear-Host
                     Show-Status
                     Write-Host ""
-                    Write-Host "按任意键返回菜单..." -ForegroundColor DarkGray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    Write-Host "按 Esc 返回菜单..." -ForegroundColor DarkGray
+                    while ($true) {
+                        $backKey = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                        if ($backKey.VirtualKeyCode -eq 27) { break }
+                    }
                 }
                 "logs" {
                     Clear-Host
                     Show-Logs -Interactive
                     Write-Host ""
-                    Write-Host "按任意键返回菜单..." -ForegroundColor DarkGray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    Write-Host "按 Esc 返回菜单..." -ForegroundColor DarkGray
+                    while ($true) {
+                        $backKey = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                        if ($backKey.VirtualKeyCode -eq 27) { break }
+                    }
                 }
                 "help" {
                     Clear-Host
                     Show-Help
                     Write-Host ""
-                    Write-Host "按任意键返回菜单..." -ForegroundColor DarkGray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    Write-Host "按 Esc 返回菜单..." -ForegroundColor DarkGray
+                    while ($true) {
+                        $backKey = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                        if ($backKey.VirtualKeyCode -eq 27) { break }
+                    }
                 }
                 "exit" {
                     $cleanOptions = @(
@@ -1039,7 +1074,7 @@ function Show-Menu {
                         
                         Draw-Menu -Title "清理选项：" -Items $cleanOptions -SelectedIndex $cleanSelected
                         Write-Host ""
-                        Write-Host "↑↓ 选择，Enter 确认" -ForegroundColor DarkGray
+                        Write-Host "↑↓ 选择，Enter 确认，Esc 返回" -ForegroundColor DarkGray
                         
                         $cleanKey = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
                         $cleanKeyCode = $cleanKey.VirtualKeyCode
@@ -1052,11 +1087,21 @@ function Show-Menu {
                             # 下箭头
                             $cleanSelected = if ($cleanSelected -ge $cleanOptions.Count - 1) { 0 } else { $cleanSelected + 1 }
                         }
+                        elseif ($cleanKeyCode -eq 27) {
+                            # Esc 返回上一级菜单
+                            $cleanAction = "back"
+                            break
+                        }
                         elseif ($cleanKeyCode -eq 13) {
                             # Enter - 执行选中的操作
                             $cleanAction = $cleanOptions[$cleanSelected].action
                             break
                         }
+                    }
+                    
+                    # Esc 返回主菜单
+                    if ($cleanAction -eq "back") {
+                        continue
                     }
                     
                     # 执行清理操作
@@ -1106,7 +1151,9 @@ function Show-Menu {
 
 # 主逻辑
 if (-not $Action) {
-    # 无参数时显示交互菜单
+    # 启动时先启动 wrapper 与准备下载器镜像，然后进入主菜单
+    Start-Services -Interactive
+    Prepare-DownloaderImage
     Show-Menu
 } else {
     # 根据参数执行对应操作
